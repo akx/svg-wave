@@ -1,14 +1,26 @@
 type Point = [number, number];
 export type WaveFunc = (phase: number, maxAmp: number) => number;
 
-function getPathPoints(path: SVGPathElement, res: number): Point[] {
+function getPathPoints(
+  path: SVGPathElement,
+  resolution?: number,
+  subdivisions?: number,
+): Point[] {
   // Get the points of the geometry with the given resolution
   const length = path.getTotalLength();
   const points: Point[] = [];
-  if (res < 0.1) res = 0.1; // prevent infinite loop
-  for (let i = 0; i <= length + res; i += res) {
-    const { x, y } = path.getPointAtLength(i);
-    points.push([x, y]);
+  if (resolution && resolution > 0) {
+    if (resolution < 0.1) resolution = 0.1; // prevent infinite loop
+    for (let i = 0; i <= length + resolution; i += resolution) {
+      const { x, y } = path.getPointAtLength(i);
+      points.push([x, y]);
+    }
+  } else {
+    if (!subdivisions || subdivisions < 2) subdivisions = 2;
+    for (let i = 0; i <= subdivisions; i++) {
+      const { x, y } = path.getPointAtLength((i / subdivisions) * length);
+      points.push([x, y]);
+    }
   }
   return points;
 }
@@ -21,7 +33,7 @@ function computeWavePoints(
   maxAmp: number,
 ) {
   // For each of those points, generate a new point...
-  const wavePoints = [points[0]];
+  const wavePoints: Point[] = [];
   for (let i = 0; i < points.length - 1; i++) {
     // Numerical computation of the angle between this and the next point
     const [x0, y0] = points[i];
@@ -59,18 +71,50 @@ function getTerminalPoint(
   return lastPoint;
 }
 
+interface WaveSettings {
+  frequency: number;
+  maxAmplitude: number;
+  phase: number;
+  resolution?: number;
+  subdivisions?: number;
+  pointDecimals?: number;
+  waveFunc: WaveFunc;
+}
+
+function roundToDecimals(x: number, decimals: number) {
+  return Math.round(x * 10 ** decimals) / 10 ** decimals;
+}
+
 export default function computeWave(
   path: SVGPathElement,
-  freq: number,
-  maxAmp: number,
-  phase: number,
-  res: number,
-  waveFunc: WaveFunc,
+  settings: WaveSettings,
 ) {
-  const points = getPathPoints(path, res);
-  const wavePoints = computeWavePoints(points, freq, phase, waveFunc, maxAmp);
+  const {
+    frequency,
+    maxAmplitude,
+    phase,
+    resolution,
+    subdivisions,
+    waveFunc,
+    pointDecimals,
+  } = settings;
+  const points = getPathPoints(path, resolution, subdivisions);
+  if (!points.length) return "";
+  let wavePoints = computeWavePoints(
+    points,
+    frequency,
+    phase,
+    waveFunc,
+    maxAmplitude,
+  );
   const terminalPoint = getTerminalPoint(points, wavePoints);
   wavePoints.push(terminalPoint);
+  if (pointDecimals && pointDecimals > 0) {
+    wavePoints = wavePoints.map(([x, y]) => [
+      roundToDecimals(x, pointDecimals),
+      roundToDecimals(y, pointDecimals),
+    ]);
+  }
   // Compute SVG polyline string.
   return wavePoints
     .map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`)
